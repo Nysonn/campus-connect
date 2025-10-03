@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------- #
+# Dependencies
+# ---------------------------------------------------------------- #
+/node_modules
+
+# ---------------------------------------------------------------- #
+# Build Artifacts / Compiled Code
+# ---------------------------------------------------------------- #
+# Typically, TypeScript compiles to a 'dist' or 'build' directory.
+/dist
+/build
+
+# ---------------------------------------------------------------- #
+# Configuration / Secrets
+# ---------------------------------------------------------------- #
+# Environment variables containing secrets (database URL, keys, etc.)
+.env
+# Keep this line if you use a CI/CD process that generates a new one
+.env.local
+
+# ---------------------------------------------------------------- #
+# Logs and Debugging
+# ---------------------------------------------------------------- #
+*.log
+npm-debug.log*
+yarn-error.log
+/pids
+/logs
+
+# ---------------------------------------------------------------- #
+# Editor/OS Specific Files
+# ---------------------------------------------------------------- #
+# VS Code
+.vscode/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# ---------------------------------------------------------------- #
+# Prisma Files
+# ---------------------------------------------------------------- #
+# The auto-generated client files
+/prisma/client
+/prisma/generated
+
+# SQLite Database Files (if you use SQLite locally)
+*.sqlite
+*.sqlite-journal

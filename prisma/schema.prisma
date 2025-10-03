@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PASSENGER
+  RIDER
+  ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum RideType {
+  SINGLE
+  SHARED
+}
+
+enum RideStatus {
+  PENDING
+  ACCEPTED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id                String   @id @default(uuid())
+  name              String
+  email             String?  @unique
+  phone             String?  @unique
+  password          String
+  role              Role
+  gender            Gender? 
+  registrationNumber String?  @map("registration_number")
+  licenseNumber     String?  @map("license_number")
+  licensePlate      String?  @map("license_plate")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // relations
+  ridesCreated      Ride[]   @relation("passengerCreated")
+  ridesAccepted     Ride[]   @relation("riderAccepted")
+  rideParticipants  RideParticipant[]
+  ratingsGiven      Rating[] @relation("rater")
+  ratingsReceived   Rating[] @relation("ratee")
+}
+
+model Ride {
+  id                 String      @id @default(uuid())
+  type               RideType
+  pickupAddress      String
+  pickupLat          Float?
+  pickupLng          Float?
+  destinationAddress String
+  destinationLat     Float?
+  destinationLng     Float?
+  distanceKm         Float?
+  scheduledAt        DateTime?
+  fare               Decimal     @db.Decimal(10,2)
+  status             RideStatus  @default(PENDING)
+  sharedCode         String?     @unique
+  capacity           Int?        // for shared rides, total seats including creator
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  // relations
+  passengerId        String
+  passenger          User        @relation("passengerCreated", fields: [passengerId], references: [id])
+  riderId            String?     // the rider who accepted this ride (nullable until accepted)
+  rider              User?       @relation("riderAccepted", fields: [riderId], references: [id])
+  participants       RideParticipant[]
+  ratings            Rating[]
+}
+
+model RideParticipant {
+  id          String   @id @default(uuid())
+  rideId      String
+  ride        Ride     @relation(fields: [rideId], references: [id])
+  passengerId String
+  passenger   User     @relation(fields: [passengerId], references: [id])
+  joinedAt    DateTime @default(now())
+
+  @@unique([rideId, passengerId])
+}
+
+model Rating {
+  id         String   @id @default(uuid())
+  rideId     String
+  ride       Ride     @relation(fields: [rideId], references: [id])
+  raterId    String
+  rater      User     @relation("rater", fields: [raterId], references: [id])
+  rateeId    String
+  ratee      User     @relation("ratee", fields: [rateeId], references: [id])
+  rating     Int
+  createdAt  DateTime @default(now())
+
+  @@index([rideId])
+}

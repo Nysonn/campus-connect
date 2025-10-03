@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: campus_connect_dev
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5438:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d campus_connect_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  app:
+    build:
+      context: .
+      target: dev         # use the dev stage (nodemon + dev deps)
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      # provide defaults; override via .env or environment when needed
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/campus_connect_dev?schema=public"
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_me}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@campus.example}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-AdminPass123}
+      NODE_ENV: development
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./:/app             # mount source for live code changes
+      - /app/node_modules   # keep container node_modules separate
+
+volumes:
+  db_data:

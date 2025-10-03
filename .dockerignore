@@ -1,0 +1,21 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Development/Build Files
+# Exclude TypeScript source and configuration, as you'll likely build JS in the container
+src
+tsconfig.json
+
+# Configuration/Secrets
+.env
+.env.example
+
+# Database-related
+prisma/seed.ts # Seeds are typically run later and not needed for the initial build/deploy image
+
+# macOS/System files
+.DS_Store
+.vscode
