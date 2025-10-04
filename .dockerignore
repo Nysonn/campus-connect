@@ -1,21 +1,40 @@
-# Dependencies
+###############################
+# Docker Ignore File          #
+# Optimized for Node + Prisma #
+###############################
+
+# NEVER ignore these (needed for build):
+#  - package.json
+#  - package-lock.json
+#  - tsconfig.json
+#  - prisma/schema.prisma
+#  - src/
+
+# Dependencies (will be re-installed in image)
 node_modules
 npm-debug.log
 yarn-error.log
-package-lock.json
 
-# Development/Build Files
-# Exclude TypeScript source and configuration, as you'll likely build JS in the container
-src
-tsconfig.json
+# Build artifacts
+dist
+coverage
 
-# Configuration/Secrets
+# Environment / secrets (provide via Render dashboard or docker build args)
 .env
-.env.example
+.env.*
 
-# Database-related
-prisma/seed.ts # Seeds are typically run later and not needed for the initial build/deploy image
+# Logs
+*.log
 
-# macOS/System files
+# Database seed script can be excluded from main build output but we DO send it (remove ignore)
+# If you want to exclude it from context, uncomment next line:
+# prisma/seed.ts
+
+# System / editor files
 .DS_Store
 .vscode
+.idea
+
+# Git
+.git
+.gitignore

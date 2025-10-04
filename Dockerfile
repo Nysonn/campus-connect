@@ -16,19 +16,28 @@ RUN npm install --prefer-offline --no-audit --progress=false
 #####################################
 # builder stage: install all deps & build
 #####################################
-FROM node:18 AS builder
+FROM node:18-alpine AS builder
 WORKDIR /app
-# Copy package files
-COPY package.json package-lock.json* ./
-# Copy prisma schema
+
+# 1. Copy dependency manifests (lock file if present)
+COPY package*.json ./
+
+# 2. Install ALL dependencies deterministically
+RUN npm ci --include=dev
+
+# 3. Copy TypeScript config early (improves cache when only source changes)
+COPY tsconfig.json ./
+
+# 4. Copy Prisma schema
 COPY prisma ./prisma
-# Install ALL dependencies (including devDependencies like TypeScript)
-RUN npm install --prefer-offline --no-audit --progress=false
-# Copy all source files
-COPY . .
-# generate prisma client (requires @prisma/client present)
+
+# 5. Generate Prisma client
 RUN npx prisma generate
-# build typescript to dist
+
+# 6. Copy source code (everything else)
+COPY . .
+
+# 7. Build TypeScript
 RUN npm run build
 
 #####################################
@@ -59,16 +68,23 @@ CMD ["docker-entrypoint.sh"]
 #####################################
 FROM node:18-alpine AS release
 WORKDIR /app
-# Copy package files for reference
-COPY package.json package-lock.json* ./
-# Copy prisma schema (needed for migrations at runtime if needed)
+
+# Copy only production dependencies by re-installing using pruned package.json
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy prisma schema & generated client (schema sometimes needed for migrate if you add it later)
 COPY prisma ./prisma
-# copy built JS and production node_modules from previous stages
-COPY --from=builder /app/dist ./dist
-COPY --from=deps /app/node_modules ./node_modules
-# Copy generated Prisma client from builder
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+
 ENV NODE_ENV=production
+ENV PORT=4000
 EXPOSE 4000
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD node -e "fetch('http://localhost:' + (process.env.PORT||4000) + '/me').catch(()=>process.exit(1))" || exit 1
+
 CMD ["node", "dist/index.js"]
