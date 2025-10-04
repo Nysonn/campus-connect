@@ -69,16 +69,22 @@ CMD ["docker-entrypoint.sh"]
 FROM node:18-alpine AS release
 WORKDIR /app
 
-# Copy only production dependencies by re-installing using pruned package.json
+## Install system deps required by Prisma (openssl)
+RUN apk add --no-cache openssl
+
+# 1. Copy dependency manifests
 COPY package*.json ./
-RUN npm ci --only=production
 
-# Copy prisma schema & generated client (schema sometimes needed for migrate if you add it later)
+# 2. Copy prisma schema BEFORE install so prepare script (prisma generate) can find it
 COPY prisma ./prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-# Copy built application
+# 3. Install only production deps (using modern flag)
+RUN npm ci --omit=dev
+
+# 4. (Safety) Re-run prisma generate explicitly (harmless if already run during prepare)
+RUN npx prisma generate --schema=prisma/schema.prisma
+
+# 5. Copy build output from builder (already compiled TS)
 COPY --from=builder /app/dist ./dist
 
 ENV NODE_ENV=production
