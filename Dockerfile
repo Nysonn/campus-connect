@@ -9,6 +9,8 @@ FROM node:18 AS deps
 WORKDIR /app
 # copy package manifests first for better layer caching
 COPY package.json package-lock.json* ./
+# Copy prisma schema before npm install to prevent prepare script from failing
+COPY prisma ./prisma
 RUN npm install --prefer-offline --no-audit --progress=false
 
 #####################################

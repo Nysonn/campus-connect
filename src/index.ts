@@ -12,7 +12,13 @@ dotenv.config();
 const prisma = new PrismaClient();
 const app = express();
 
-app.use(cors()); 
+// Enable CORS for all origins
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false, 
+}));
 app.use(express.json());
 
 const PORT = Number(process.env.PORT || 4000);
