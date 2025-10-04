@@ -16,8 +16,15 @@ RUN npm install --prefer-offline --no-audit --progress=false
 #####################################
 # builder stage: install all deps & build
 #####################################
-FROM deps AS builder
+FROM node:18 AS builder
 WORKDIR /app
+# Copy package files
+COPY package.json package-lock.json* ./
+# Copy prisma schema
+COPY prisma ./prisma
+# Install ALL dependencies (including devDependencies like TypeScript)
+RUN npm install --prefer-offline --no-audit --progress=false
+# Copy all source files
 COPY . .
 # generate prisma client (requires @prisma/client present)
 RUN npx prisma generate
@@ -52,9 +59,16 @@ CMD ["docker-entrypoint.sh"]
 #####################################
 FROM node:18-alpine AS release
 WORKDIR /app
+# Copy package files for reference
+COPY package.json package-lock.json* ./
+# Copy prisma schema (needed for migrations at runtime if needed)
+COPY prisma ./prisma
 # copy built JS and production node_modules from previous stages
 COPY --from=builder /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
+# Copy generated Prisma client from builder
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 ENV NODE_ENV=production
 EXPOSE 4000
 CMD ["node", "dist/index.js"]
