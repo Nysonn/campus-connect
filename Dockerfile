@@ -1,10 +1,3 @@
-# Dockerfile (multi-stage: deps / builder / dev / release)
-# - dev target installs devDependencies and nodemon for live reload (used by docker-compose dev)
-# - release stage contains built JS only
-
-#####################################
-# deps stage: install production deps
-#####################################
 FROM node:18 AS deps
 WORKDIR /app
 # copy package manifests first for better layer caching
@@ -22,14 +15,14 @@ WORKDIR /app
 # 1. Copy dependency manifests (lock file if present)
 COPY package*.json ./
 
-# 2. Install ALL dependencies deterministically
-RUN npm ci --include=dev
+# 2. Copy Prisma schema BEFORE install (so prepare script can find it)
+COPY prisma ./prisma
 
 # 3. Copy TypeScript config early (improves cache when only source changes)
 COPY tsconfig.json ./
 
-# 4. Copy Prisma schema
-COPY prisma ./prisma
+# 4. Install ALL dependencies deterministically
+RUN npm ci --include=dev
 
 # 5. Provide build-time defaults so Prisma "get-config" doesn't fail during `prisma generate`
 # These will be overridden by platform env vars at runtime
