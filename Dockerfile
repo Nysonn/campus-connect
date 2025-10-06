@@ -1,3 +1,10 @@
+# Dockerfile (multi-stage: deps / builder / dev / release)
+# - dev target installs devDependencies and nodemon for live reload (used by docker-compose dev)
+# - release stage contains built JS only
+
+#####################################
+# deps stage: install production deps
+#####################################
 FROM node:18 AS deps
 WORKDIR /app
 # copy package manifests first for better layer caching
@@ -42,6 +49,9 @@ RUN rm -f .env || true
 
 # 9. Build TypeScript
 RUN npm run build
+
+# Verify build output exists
+RUN ls -la /app/dist && echo "Build successful - dist folder created" || echo "ERROR: dist folder not created!"
 
 #####################################
 # dev stage: for local development (nodemon + ts-node)
@@ -90,6 +100,9 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 # 5. Copy build output from builder (already compiled TS)
 COPY --from=builder /app/dist ./dist
 
+# Verify dist exists (for debugging)
+RUN ls -la /app/dist || echo "WARNING: dist folder not found!"
+
 # 6. Prevent stray local .env from overriding platform-provided environment variables
 RUN rm -f .env || true
 
@@ -101,4 +114,8 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD node -e "fetch('http://l
 
 # Ensure database schema is up-to-date before starting the server
 # If DATABASE_DIRECT_URL is not provided by the platform, fall back to DATABASE_URL so Prisma config validation passes
-CMD sh -c "export DATABASE_DIRECT_URL=\${DATABASE_DIRECT_URL:-\$DATABASE_URL} && npx prisma migrate deploy && node dist/index.js"
+CMD sh -c "export DATABASE_DIRECT_URL=\${DATABASE_DIRECT_URL:-\$DATABASE_URL} && \
+    npx prisma migrate deploy && \
+    ls -la /app && \
+    ls -la /app/dist && \
+    node dist/index.js"
