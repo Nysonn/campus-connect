@@ -31,13 +31,23 @@ COPY tsconfig.json ./
 # 4. Copy Prisma schema
 COPY prisma ./prisma
 
-# 5. Generate Prisma client
+# 5. Provide build-time defaults so Prisma "get-config" doesn't fail during `prisma generate`
+# These will be overridden by platform env vars at runtime
+ARG PRISMA_DB_URL="postgresql://user:password@localhost:5432/mydatabase?schema=public"
+ARG PRISMA_DB_DIRECT_URL="postgresql://user:password@localhost:5432/mydatabase?schema=public"
+ENV DATABASE_URL=${PRISMA_DB_URL}
+ENV DATABASE_DIRECT_URL=${PRISMA_DB_DIRECT_URL}
+
+# 6. Generate Prisma client
 RUN npx prisma generate
 
-# 6. Copy source code (everything else)
+# 7. Copy source code (everything else)
 COPY . .
 
-# 7. Build TypeScript
+# 8. Prevent stray local .env from overriding platform-provided environment variables
+RUN rm -f .env || true
+
+# 9. Build TypeScript
 RUN npm run build
 
 #####################################
@@ -87,10 +97,15 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 # 5. Copy build output from builder (already compiled TS)
 COPY --from=builder /app/dist ./dist
 
+# 6. Prevent stray local .env from overriding platform-provided environment variables
+RUN rm -f .env || true
+
 ENV NODE_ENV=production
 ENV PORT=4000
 EXPOSE 4000
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD node -e "fetch('http://localhost:' + (process.env.PORT||4000) + '/me').catch(()=>process.exit(1))" || exit 1
 
-CMD ["node", "dist/index.js"]
+# Ensure database schema is up-to-date before starting the server
+# If DATABASE_DIRECT_URL is not provided by the platform, fall back to DATABASE_URL so Prisma config validation passes
+CMD sh -c "export DATABASE_DIRECT_URL=\${DATABASE_DIRECT_URL:-\$DATABASE_URL} && npx prisma migrate deploy && node dist/index.js"
