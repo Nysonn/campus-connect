@@ -1,7 +1,7 @@
 # Campus Connect API Documentation
 
 **Version:** 1.0.0  
-**Base URL:** `http://localhost:4000`  
+**Base URL:** `campus-connect-ytm5.onrender.com/`  
 **Last Updated:** October 3, 2025
 
 ---
