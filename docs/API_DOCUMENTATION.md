@@ -25,6 +25,14 @@ All authenticated endpoints require a Bearer token in the Authorization header:
 Authorization: Bearer <your-jwt-token>
 ```
 
+**Important:** The API now supports two authentication methods:
+1. **Bearer Token (Traditional):** Include the JWT token in the `Authorization` header as shown above
+2. **Cookie-Based (Automatic):** The API automatically sets a secure HTTP-only cookie named `campus_connect_token` upon successful login. This cookie is valid for **6 months** and is automatically sent with requests when using credentials mode in fetch/axios.
+
+**Session Duration:** All sessions (both token and cookie) are valid for **6 months (180 days)**. Users will remain logged in without needing to authenticate again during this period.
+
+**Token Validation:** Use the `GET /auth/validate-token` endpoint to check if a user's session is still valid.
+
 ### 1. Passenger Register
 
 **Endpoint:** `POST /auth/passenger/register`  
@@ -227,9 +235,62 @@ Authorization: Bearer <your-jwt-token>
 
 ---
 
+### 6. Validate Token
+
+**Endpoint:** `GET /auth/validate-token`  
+**Authentication:** Required (Any role)  
+**Description:** Validate the current authentication token and retrieve user information. This endpoint is used by the frontend to check if the user is still authenticated without requiring them to log in again.
+
+**Request Headers:**
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "valid": true,
+  "user": {
+    "id": "181e88ad-9d4f-4d41-8bd6-ca9248b7f993",
+    "name": "Agaba Timothy",
+    "email": "agabatimo@gmail.com",
+    "phone": "0722976605",
+    "role": "PASSENGER",
+    "gender": "MALE",
+    "registrationNumber": "CS1021001",
+    "licenseNumber": null,
+    "licensePlate": null
+  }
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Invalid, expired, or missing token
+- `500 Internal Server Error`: Server error
+
+---
+
+### 7. Logout
+
+**Endpoint:** `POST /auth/logout`  
+**Authentication:** Not required  
+**Description:** Logout the current user by clearing the authentication cookie. Note that this only clears the cookie; the JWT token itself remains valid until expiration.
+
+**Success Response (200 OK):**
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+**Error Responses:**
+- `500 Internal Server Error`: Server error
+
+---
+
 ## User Profile
 
-### 6. Get Current User
+### 8. Get Current User
 
 **Endpoint:** `GET /me`  
 **Authentication:** Required (Any role)  
@@ -270,7 +331,7 @@ Authorization: Bearer <your-jwt-token>
 
 All passenger ride endpoints require authentication and PASSENGER role.
 
-### 7. Create Single Ride
+### 9. Create Single Ride
 
 **Endpoint:** `POST /rides/single`  
 **Authentication:** Required (PASSENGER role)  
@@ -330,7 +391,7 @@ Content-Type: application/json
 
 ---
 
-### 8. Create Shared Ride
+### 10. Create Shared Ride
 
 **Endpoint:** `POST /rides/shared`  
 **Authentication:** Required (PASSENGER role)  
@@ -394,7 +455,7 @@ Content-Type: application/json
 
 ---
 
-### 9. Join Shared Ride
+### 11. Join Shared Ride
 
 **Endpoint:** `POST /rides/join`  
 **Authentication:** Required (PASSENGER role)  
@@ -438,7 +499,7 @@ Content-Type: application/json
 
 ---
 
-### 10. Cancel Ride
+### 12. Cancel Ride
 
 **Endpoint:** `POST /rides/:id/cancel`  
 **Authentication:** Required (PASSENGER role)  
@@ -485,7 +546,7 @@ Or for shared ride participant:
 
 ---
 
-### 11. Get Passenger Rides
+### 13. Get Passenger Rides
 
 **Endpoint:** `GET /passenger/rides`  
 **Authentication:** Required (PASSENGER role)  
@@ -541,7 +602,7 @@ Authorization: Bearer <your-jwt-token>
 
 All rider endpoints require authentication and RIDER role.
 
-### 12. Get Available Single Rides
+### 14. Get Available Single Rides
 
 **Endpoint:** `GET /rides/available/single`  
 **Authentication:** Required (RIDER role)  
@@ -590,7 +651,7 @@ Authorization: Bearer <your-jwt-token>
 
 ---
 
-### 13. Get Available Shared Rides
+### 15. Get Available Shared Rides
 
 **Endpoint:** `GET /rides/available/shared`  
 **Authentication:** Required (RIDER role)  
@@ -649,7 +710,7 @@ Authorization: Bearer <your-jwt-token>
 
 ---
 
-### 14. Accept Ride
+### 16. Accept Ride
 
 **Endpoint:** `POST /rides/:id/accept`  
 **Authentication:** Required (RIDER role)  
@@ -726,7 +787,7 @@ POST /rides/e4888452-678a-42ee-87d0-bf195d496103/accept
 
 ---
 
-### 15. Complete Ride
+### 17. Complete Ride
 
 **Endpoint:** `POST /rides/:id/complete`  
 **Authentication:** Required (RIDER role)  
@@ -761,7 +822,7 @@ POST /rides/e4888452-678a-42ee-87d0-bf195d496103/complete
 
 ---
 
-### 16. Get Rider Rides
+### 18. Get Rider Rides
 
 **Endpoint:** `GET /rider/rides`  
 **Authentication:** Required (RIDER role)  
@@ -812,7 +873,7 @@ Authorization: Bearer <your-jwt-token>
 
 ## Ratings
 
-### 17. Rate Ride Participant
+### 19. Rate Ride Participant
 
 **Endpoint:** `POST /rides/:id/rate`  
 **Authentication:** Required (Any role)  
@@ -869,7 +930,7 @@ Content-Type: application/json
 
 All admin endpoints require authentication and ADMIN role.
 
-### 18. Get All Users
+### 20. Get All Users
 
 **Endpoint:** `GET /admin/users`  
 **Authentication:** Required (ADMIN role)  
@@ -925,7 +986,7 @@ GET /admin/users?role=RIDER
 
 ---
 
-### 19. Get All Rides
+### 21. Get All Rides
 
 **Endpoint:** `GET /admin/rides`  
 **Authentication:** Required (ADMIN role)  
@@ -980,7 +1041,7 @@ Authorization: Bearer <your-jwt-token>
 
 ---
 
-### 20. Get Statistics
+### 22. Get Statistics
 
 **Endpoint:** `GET /admin/stats`  
 **Authentication:** Required (ADMIN role)  
@@ -1076,21 +1137,34 @@ For validation errors:
 
 ### For Passengers:
 1. Register using `POST /auth/passenger/register`
-2. Login using `POST /auth/passenger/login` to get JWT token
-3. Use token in `Authorization: Bearer <token>` header for all requests
-4. Token expires after 8 hours
+2. Login using `POST /auth/passenger/login` to get JWT token and set authentication cookie
+3. Use token in `Authorization: Bearer <token>` header for all requests OR rely on automatic cookie authentication
+4. Token and cookie expire after **6 months (180 days)**
+5. Use `GET /auth/validate-token` to check if session is still valid
+6. Use `POST /auth/logout` to clear the authentication cookie
 
 ### For Riders:
 1. Register using `POST /auth/rider/register`
-2. Login using `POST /auth/rider/login` to get JWT token
-3. Use token in `Authorization: Bearer <token>` header for all requests
-4. Token expires after 8 hours
+2. Login using `POST /auth/rider/login` to get JWT token and set authentication cookie
+3. Use token in `Authorization: Bearer <token>` header for all requests OR rely on automatic cookie authentication
+4. Token and cookie expire after **6 months (180 days)**
+5. Use `GET /auth/validate-token` to check if session is still valid
+6. Use `POST /auth/logout` to clear the authentication cookie
 
 ### For Admins:
 1. Use seeded credentials (no registration)
-2. Login using `POST /auth/admin/login` to get JWT token
-3. Use token in `Authorization: Bearer <token>` header for all requests
-4. Token expires after 8 hours
+2. Login using `POST /auth/admin/login` to get JWT token and set authentication cookie
+3. Use token in `Authorization: Bearer <token>` header for all requests OR rely on automatic cookie authentication
+4. Token and cookie expire after **6 months (180 days)**
+5. Use `GET /auth/validate-token` to check if session is still valid
+6. Use `POST /auth/logout` to clear the authentication cookie
+
+### Frontend Integration Notes:
+- When making requests with fetch or axios, use `credentials: 'include'` to automatically send cookies
+- The API CORS is configured to accept credentials from the frontend origin
+- On page load, call `GET /auth/validate-token` to check if the user is still authenticated
+- If the validate endpoint returns 401, redirect to login page
+- After successful login, store the JWT token in memory or use the automatic cookie (recommended)
 
 ---
 

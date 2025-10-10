@@ -1,7 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import * as dotenv from 'dotenv';
-import { PrismaClient, Role, RideStatus, RideType } from '@prisma/client';
+import { PrismaClient, Role, RideStatus, RideType, VehicleType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -12,18 +13,21 @@ dotenv.config();
 const prisma = new PrismaClient();
 const app = express();
 
-// Enable CORS for all origins
+// Enable CORS with credentials support
 app.use(cors({
-  origin: '*', // Allow all origins
+  origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false, 
+  credentials: true, 
 }));
 app.use(express.json());
+app.use(cookieParser());
 
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const JWT_EXP = '8h'; 
+const JWT_EXP = '180d'; // 6 months (approximately 180 days)
+const COOKIE_NAME = 'campus_connect_token';
+const COOKIE_MAX_AGE = 180 * 24 * 60 * 60 * 1000; // 6 months in milliseconds 
 
 // Types & Extending Request 
 type JwtPayload = { userId: string; role: Role };
@@ -54,13 +58,31 @@ function verifyToken(token: string) {
   }
 }
 
+function setAuthCookie(res: Response, token: string) {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: COOKIE_MAX_AGE,
+  });
+}
+
 // Middleware
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Try to get token from Authorization header first, then from cookie
+  let token: string | null = null;
+  
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (req.cookies && req.cookies[COOKIE_NAME]) {
+    token = req.cookies[COOKIE_NAME];
+  }
+  
+  if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const token = authHeader.slice(7);
+  
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ error: 'Invalid token' });
   req.user = { id: payload.userId, role: payload.role };
@@ -115,14 +137,29 @@ const adminLoginSchema = z.object({
 
 const createSingleRideSchema = z.object({
   pickupAddress: z.string().min(1),
+  pickupLat: z.number(),
+  pickupLng: z.number(),
   destinationAddress: z.string().min(1),
+  destinationLat: z.number(),
+  destinationLng: z.number(),
   distanceKm: z.number().optional(),
   scheduledAt: z.string().datetime().optional(),
   fare: z.number().nonnegative(),
+  vehicleType: z.enum(['BODA_BIKE', 'CAR']),
 });
 
-const createSharedRideSchema = createSingleRideSchema.extend({
-  capacity: z.enum(['4', '6', '8', '12', '14', '16']).transform((s) => Number(s)),
+const createSharedRideSchema = z.object({
+  pickupAddress: z.string().min(1),
+  pickupLat: z.number(),
+  pickupLng: z.number(),
+  destinationAddress: z.string().min(1),
+  destinationLat: z.number(),
+  destinationLng: z.number(),
+  distanceKm: z.number().optional(),
+  scheduledAt: z.string().datetime().optional(),
+  fare: z.number().nonnegative(),
+  vehicleType: z.enum(['CAR', 'MINI_VAN', 'VAN', 'PREMIUM_VAN']),
+  capacity: z.number().int().positive().optional(), // Will be set based on vehicleType
 });
 
 const joinSharedSchema = z.object({
@@ -178,6 +215,7 @@ app.post('/auth/passenger/register', async (req: Request, res: Response) => {
     });
 
     const token = generateToken({ userId: user.id, role: user.role });
+    setAuthCookie(res, token);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err: any) {
     if (err?.issues) {
@@ -197,6 +235,7 @@ app.post('/auth/passenger/login', async (req: Request, res: Response) => {
     const ok = await verifyPassword(parsed.password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = generateToken({ userId: user.id, role: user.role });
+    setAuthCookie(res, token);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err: any) {
     if (err?.issues) return res.status(400).json({ error: err.issues });
@@ -224,6 +263,7 @@ app.post('/auth/rider/register', async (req: Request, res: Response) => {
       },
     });
     const token = generateToken({ userId: user.id, role: user.role });
+    setAuthCookie(res, token);
     res.json({ token, user: { id: user.id, name: user.name, phone: user.phone, role: user.role } });
   } catch (err: any) {
     if (err?.issues) return res.status(400).json({ error: err.issues });
@@ -241,6 +281,7 @@ app.post('/auth/rider/login', async (req: Request, res: Response) => {
     const ok = await verifyPassword(parsed.password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = generateToken({ userId: user.id, role: user.role });
+    setAuthCookie(res, token);
     res.json({ token, user: { id: user.id, name: user.name, phone: user.phone, role: user.role } });
   } catch (err: any) {
     if (err?.issues) return res.status(400).json({ error: err.issues });
@@ -258,12 +299,65 @@ app.post('/auth/admin/login', async (req: Request, res: Response) => {
     const ok = await verifyPassword(parsed.password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = generateToken({ userId: user.id, role: user.role });
+    setAuthCookie(res, token);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err: any) {
     if (err?.issues) return res.status(400).json({ error: err.issues });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Validate Token Endpoint - Allows frontend to check if user is still authenticated
+app.get('/auth/validate-token', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        gender: true,
+        registrationNumber: true,
+        licenseNumber: true,
+        licensePlate: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      valid: true, 
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        gender: user.gender,
+        registrationNumber: user.registrationNumber,
+        licenseNumber: user.licenseNumber,
+        licensePlate: user.licensePlate,
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Logout Endpoint - Clears the authentication cookie
+app.post('/auth/logout', (req: Request, res: Response) => {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+  });
+  res.json({ message: 'Logged out successfully' });
 });
 
 // Getting user Account Details
@@ -301,23 +395,33 @@ app.post('/rides/single', authMiddleware, requireRole([Role.PASSENGER]), async (
       data: {
         type: RideType.SINGLE,
         pickupAddress: parsed.pickupAddress,
+        pickupLat: parsed.pickupLat,
+        pickupLng: parsed.pickupLng,
         destinationAddress: parsed.destinationAddress,
+        destinationLat: parsed.destinationLat,
+        destinationLng: parsed.destinationLng,
         distanceKm: parsed.distanceKm,
         scheduledAt: parsed.scheduledAt ? new Date(parsed.scheduledAt) : null,
         fare: new Decimal(fareDecimal) as any,
+        vehicleType: parsed.vehicleType as VehicleType,
         passengerId: req.user!.id,
       },
       select: {
         id: true,
         type: true,
         pickupAddress: true,
+        pickupLat: true,
+        pickupLng: true,
         destinationAddress: true,
+        destinationLat: true,
+        destinationLng: true,
         distanceKm: true,
         scheduledAt: true,
         fare: true,
         status: true,
         sharedCode: true,
         capacity: true,
+        vehicleType: true,
         createdAt: true,
         updatedAt: true,
         passengerId: true,
@@ -345,29 +449,49 @@ app.post('/rides/shared', authMiddleware, requireRole([Role.PASSENGER]), async (
     const parsed = createSharedRideSchema.parse(req.body);
     const code = await createUniqueSharedCode();
 
+    // Map vehicle type to capacity
+    const vehicleCapacityMap: Record<string, number> = {
+      'CAR': 4,
+      'MINI_VAN': 7,
+      'VAN': 10,
+      'PREMIUM_VAN': 14,
+    };
+
+    const capacity = parsed.capacity || vehicleCapacityMap[parsed.vehicleType];
+
     const ride = await prisma.ride.create({
       data: {
         type: RideType.SHARED,
         pickupAddress: parsed.pickupAddress,
+        pickupLat: parsed.pickupLat,
+        pickupLng: parsed.pickupLng,
         destinationAddress: parsed.destinationAddress,
+        destinationLat: parsed.destinationLat,
+        destinationLng: parsed.destinationLng,
         distanceKm: parsed.distanceKm,
         scheduledAt: parsed.scheduledAt ? new Date(parsed.scheduledAt) : null,
         fare: new Decimal(parsed.fare) as any,
+        vehicleType: parsed.vehicleType as VehicleType,
         passengerId: req.user!.id,
         sharedCode: code,
-        capacity: parsed.capacity,
+        capacity: capacity,
       },
       select: {
         id: true,
         type: true,
         pickupAddress: true,
+        pickupLat: true,
+        pickupLng: true,
         destinationAddress: true,
+        destinationLat: true,
+        destinationLng: true,
         distanceKm: true,
         scheduledAt: true,
         fare: true,
         status: true,
         sharedCode: true,
         capacity: true,
+        vehicleType: true,
         createdAt: true,
         updatedAt: true,
         passengerId: true,
@@ -716,6 +840,10 @@ app.get('/admin/stats', authMiddleware, requireRole([Role.ADMIN]), async (req: R
 });
 
 // Error Handling
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).json({ response: "Welcome to Campus Connect" })
+})
+
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
 });

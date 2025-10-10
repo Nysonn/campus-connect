@@ -25,8 +25,8 @@ async function main() {
       name: 'Campus Admin',
       email: adminEmail,
       password: hashed,
-      role: 'ADMIN'
-    }
+      role: 'ADMIN',
+    },
   });
 
   console.log(`Seeded admin user: ${adminEmail}`);

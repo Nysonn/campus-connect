@@ -1,7 +1,3 @@
-# Dockerfile (multi-stage: deps / builder / dev / release)
-# - dev target installs devDependencies and nodemon for live reload (used by docker-compose dev)
-# - release stage contains built JS only
-
 #####################################
 # deps stage: install production deps
 #####################################

@@ -7,54 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  PASSENGER
-  RIDER
-  ADMIN
-}
+model Rating {
+  id        String   @id @default(uuid())
+  rideId    String
+  ride      Ride     @relation(fields: [rideId], references: [id])
+  raterId   String
+  rater     User     @relation("rater", fields: [raterId], references: [id])
+  rateeId   String
+  ratee     User     @relation("ratee", fields: [rateeId], references: [id])
+  rating    Int
+  createdAt DateTime @default(now())
 
-enum Gender {
-  MALE
-  FEMALE
-}
-
-enum RideType {
-  SINGLE
-  SHARED
-}
-
-enum RideStatus {
-  PENDING
-  ACCEPTED
-  ONGOING
-  COMPLETED
-  CANCELLED
-}
-
-model User {
-  id                String   @id @default(uuid())
-  name              String
-  email             String?  @unique
-  phone             String?  @unique
-  password          String
-  role              Role
-  gender            Gender? 
-  registrationNumber String?  @map("registration_number")
-  licenseNumber     String?  @map("license_number")
-  licensePlate      String?  @map("license_plate")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  // relations
-  ridesCreated      Ride[]   @relation("passengerCreated")
-  ridesAccepted     Ride[]   @relation("riderAccepted")
-  rideParticipants  RideParticipant[]
-  ratingsGiven      Rating[] @relation("rater")
-  ratingsReceived   Rating[] @relation("ratee")
+  @@index([rideId])
 }
 
 model Ride {
-  id                 String      @id @default(uuid())
+  id                 String       @id @default(uuid())
   type               RideType
   pickupAddress      String
   pickupLat          Float?
@@ -64,20 +32,21 @@ model Ride {
   destinationLng     Float?
   distanceKm         Float?
   scheduledAt        DateTime?
-  fare               Decimal     @db.Decimal(10,2)
-  status             RideStatus  @default(PENDING)
-  sharedCode         String?     @unique
-  capacity           Int?        // for shared rides, total seats including creator
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  fare               Decimal      @db.Decimal(10, 2)
+  status             RideStatus   @default(PENDING)
+  sharedCode         String?      @unique
+  capacity           Int?
+  vehicleType        VehicleType?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   // relations
-  passengerId        String
-  passenger          User        @relation("passengerCreated", fields: [passengerId], references: [id])
-  riderId            String?     // the rider who accepted this ride (nullable until accepted)
-  rider              User?       @relation("riderAccepted", fields: [riderId], references: [id])
-  participants       RideParticipant[]
-  ratings            Rating[]
+  passengerId  String
+  passenger    User              @relation("passengerCreated", fields: [passengerId], references: [id])
+  riderId      String?
+  rider        User?             @relation("riderAccepted", fields: [riderId], references: [id])
+  participants RideParticipant[]
+  ratings      Rating[]
 }
 
 model RideParticipant {
@@ -91,16 +60,56 @@ model RideParticipant {
   @@unique([rideId, passengerId])
 }
 
-model Rating {
-  id         String   @id @default(uuid())
-  rideId     String
-  ride       Ride     @relation(fields: [rideId], references: [id])
-  raterId    String
-  rater      User     @relation("rater", fields: [raterId], references: [id])
-  rateeId    String
-  ratee      User     @relation("ratee", fields: [rateeId], references: [id])
-  rating     Int
-  createdAt  DateTime @default(now())
+model User {
+  id                 String   @id @default(uuid())
+  name               String
+  email              String?  @unique
+  phone              String?  @unique
+  password           String
+  role               Role
+  gender             Gender?
+  registrationNumber String?  @map("registration_number")
+  licenseNumber      String?  @map("license_number")
+  licensePlate       String?  @map("license_plate")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  @@index([rideId])
+  // relations
+  ridesCreated     Ride[]            @relation("passengerCreated")
+  ridesAccepted    Ride[]            @relation("riderAccepted")
+  rideParticipants RideParticipant[]
+  ratingsGiven     Rating[]          @relation("rater")
+  ratingsReceived  Rating[]          @relation("ratee")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum RideStatus {
+  PENDING
+  ACCEPTED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum RideType {
+  SINGLE
+  SHARED
+}
+
+enum Role {
+  PASSENGER
+  RIDER
+  ADMIN
+}
+
+enum VehicleType {
+  BODA_BIKE
+  CAR
+  MINI_VAN
+  VAN
+  PREMIUM_VAN
 }
