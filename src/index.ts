@@ -7,6 +7,8 @@ import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import Decimal from 'decimal.js';
+import { uploadProfilePhoto, deleteProfilePhoto, extractPublicId } from './config/cloudinary';
+import { uploadPhoto } from './middleware/upload';
 
 dotenv.config();
 
@@ -170,6 +172,28 @@ const ratingSchema = z.object({
   rating: z.number().int().min(1).max(5),
 });
 
+const updatePassengerProfileSchema = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().min(7).optional(),
+  gender: z.enum(['MALE', 'FEMALE']).optional(),
+  registrationNumber: z.string().min(1).optional(),
+});
+
+const updateRiderProfileSchema = z.object({
+  name: z.string().min(1).optional(),
+  licenseNumber: z.string().min(1).optional(),
+  licensePlate: z.string().min(1).optional(),
+});
+
+const uploadPhotoBase64Schema = z.object({
+  photo: z.string().min(1), // base64 string
+});
+
+const acceptRideSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+});
+
 // Utility Functions
 function generateSharedCode(): string {
   // 4-char alphanumeric (uppercase)
@@ -323,6 +347,7 @@ app.get('/auth/validate-token', authMiddleware, async (req: Request, res: Respon
         registrationNumber: true,
         licenseNumber: true,
         licensePlate: true,
+        profilePhotoUrl: true,
       },
     });
 
@@ -342,6 +367,7 @@ app.get('/auth/validate-token', authMiddleware, async (req: Request, res: Respon
         registrationNumber: user.registrationNumber,
         licenseNumber: user.licenseNumber,
         licensePlate: user.licensePlate,
+        profilePhotoUrl: user.profilePhotoUrl,
       }
     });
   } catch (err) {
@@ -375,6 +401,7 @@ app.get('/me', authMiddleware, async (req: Request, res: Response) => {
         registrationNumber: true,
         licenseNumber: true,
         licensePlate: true,
+        profilePhotoUrl: true,
         createdAt: true,
       },
     });
@@ -382,6 +409,212 @@ app.get('/me', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update Profile Details
+app.put('/me', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    // Get current user
+    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) return res.status(404).json({ error: 'User not found' });
+
+    // Validate and update based on role
+    if (userRole === Role.PASSENGER) {
+      const parsed = updatePassengerProfileSchema.parse(req.body);
+      
+      // Check if phone is being changed and if it's already in use
+      if (parsed.phone && parsed.phone !== currentUser.phone) {
+        const existing = await prisma.user.findUnique({ where: { phone: parsed.phone } });
+        if (existing) return res.status(400).json({ error: 'Phone number already in use' });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          name: parsed.name,
+          phone: parsed.phone,
+          gender: parsed.gender,
+          registrationNumber: parsed.registrationNumber,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          gender: true,
+          registrationNumber: true,
+          profilePhotoUrl: true,
+          createdAt: true,
+        },
+      });
+
+      return res.json({ message: 'Profile updated successfully', user: updatedUser });
+    } else if (userRole === Role.RIDER) {
+      const parsed = updateRiderProfileSchema.parse(req.body);
+      
+      // Check if license plate is being changed and if it's already in use
+      if (parsed.licensePlate && parsed.licensePlate !== currentUser.licensePlate) {
+        const existing = await prisma.user.findFirst({ where: { licensePlate: parsed.licensePlate } });
+        if (existing) return res.status(400).json({ error: 'License plate already in use' });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          name: parsed.name,
+          licenseNumber: parsed.licenseNumber,
+          licensePlate: parsed.licensePlate,
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          role: true,
+          licenseNumber: true,
+          licensePlate: true,
+          profilePhotoUrl: true,
+          createdAt: true,
+        },
+      });
+
+      return res.json({ message: 'Profile updated successfully', user: updatedUser });
+    } else {
+      return res.status(403).json({ error: 'Profile update not allowed for this role' });
+    }
+  } catch (err: any) {
+    if (err?.issues) return res.status(400).json({ error: err.issues });
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Upload Profile Photo (multipart/form-data)
+app.post('/me/photo', authMiddleware, uploadPhoto.single('photo'), async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Get current user to check for existing photo
+    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) return res.status(404).json({ error: 'User not found' });
+
+    // Delete old photo from Cloudinary if it exists
+    if (currentUser.profilePhotoUrl) {
+      const publicId = extractPublicId(currentUser.profilePhotoUrl);
+      if (publicId) {
+        try {
+          await deleteProfilePhoto(publicId);
+        } catch (err) {
+          console.error('Error deleting old photo:', err);
+          // Continue even if delete fails
+        }
+      }
+    }
+
+    // Upload new photo to Cloudinary
+    const result = await uploadProfilePhoto(req.file.buffer, userId);
+
+    // Update user profile with new photo URL
+    await prisma.user.update({
+      where: { id: userId },
+      data: { profilePhotoUrl: result.url },
+    });
+
+    res.json({ 
+      message: 'Profile photo updated successfully', 
+      profilePhotoUrl: result.url 
+    });
+  } catch (err: any) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload photo' });
+  }
+});
+
+// Upload Profile Photo (base64 JSON)
+app.post('/me/photo/base64', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const parsed = uploadPhotoBase64Schema.parse(req.body);
+
+    // Validate base64 format
+    if (!parsed.photo.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'Invalid base64 image format' });
+    }
+
+    // Get current user to check for existing photo
+    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) return res.status(404).json({ error: 'User not found' });
+
+    // Delete old photo from Cloudinary if it exists
+    if (currentUser.profilePhotoUrl) {
+      const publicId = extractPublicId(currentUser.profilePhotoUrl);
+      if (publicId) {
+        try {
+          await deleteProfilePhoto(publicId);
+        } catch (err) {
+          console.error('Error deleting old photo:', err);
+          // Continue even if delete fails
+        }
+      }
+    }
+
+    // Upload new photo to Cloudinary
+    const result = await uploadProfilePhoto(parsed.photo, userId);
+
+    // Update user profile with new photo URL
+    await prisma.user.update({
+      where: { id: userId },
+      data: { profilePhotoUrl: result.url },
+    });
+
+    res.json({ 
+      message: 'Profile photo updated successfully', 
+      profilePhotoUrl: result.url 
+    });
+  } catch (err: any) {
+    if (err?.issues) return res.status(400).json({ error: err.issues });
+    console.error('Upload error:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload photo' });
+  }
+});
+
+// Delete Profile Photo
+app.delete('/me/photo', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+
+    // Get current user
+    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) return res.status(404).json({ error: 'User not found' });
+
+    if (!currentUser.profilePhotoUrl) {
+      return res.status(404).json({ error: 'No profile photo to delete' });
+    }
+
+    // Delete from Cloudinary
+    const publicId = extractPublicId(currentUser.profilePhotoUrl);
+    if (publicId) {
+      await deleteProfilePhoto(publicId);
+    }
+
+    // Update user profile to remove photo URL
+    await prisma.user.update({
+      where: { id: userId },
+      data: { profilePhotoUrl: null },
+    });
+
+    res.json({ message: 'Profile photo deleted successfully' });
+  } catch (err: any) {
+    console.error('Delete error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete photo' });
   }
 });
 
@@ -585,10 +818,18 @@ app.get('/rides/available/shared', authMiddleware, requireRole([Role.RIDER]), as
 app.post('/rides/:id/accept', authMiddleware, requireRole([Role.RIDER]), async (req: Request, res: Response) => {
   try {
     const rideId = req.params.id;
+    const parsed = acceptRideSchema.parse(req.body);
+    
     // Attempt to atomically update the ride if still pending
     const result = await prisma.ride.updateMany({
       where: { id: rideId, status: RideStatus.PENDING },
-      data: { status: RideStatus.ACCEPTED, riderId: req.user!.id },
+      data: { 
+        status: RideStatus.ACCEPTED, 
+        riderId: req.user!.id,
+        riderAcceptanceLat: parsed.latitude,
+        riderAcceptanceLng: parsed.longitude,
+        riderAcceptanceTimestamp: new Date(),
+      },
     });
 
     if (result.count === 0) {
@@ -602,7 +843,8 @@ app.post('/rides/:id/accept', authMiddleware, requireRole([Role.RIDER]), async (
     });
 
     res.json({ message: 'Ride accepted', ride });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.issues) return res.status(400).json({ error: err.issues });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -674,7 +916,16 @@ app.post('/rides/:id/complete', authMiddleware, requireRole([Role.RIDER]), async
       return res.status(400).json({ error: 'Ride is not active' });
     }
 
-    await prisma.ride.update({ where: { id: rideId }, data: { status: RideStatus.COMPLETED } });
+    // Complete ride and clear location data
+    await prisma.ride.update({ 
+      where: { id: rideId }, 
+      data: { 
+        status: RideStatus.COMPLETED,
+        riderAcceptanceLat: null,
+        riderAcceptanceLng: null,
+        riderAcceptanceTimestamp: null,
+      } 
+    });
 
     res.json({ message: 'Ride completed' });
   } catch (err) {
@@ -735,6 +986,70 @@ app.post('/rides/:id/rate', authMiddleware, async (req: Request, res: Response) 
 });
 
 // Get all passenger rides
+// Get ride by ID (for passengers)
+app.get('/rides/:id', authMiddleware, requireRole([Role.PASSENGER]), async (req: Request, res: Response) => {
+  try {
+    const rideId = req.params.id;
+    const userId = req.user!.id;
+
+    // Find the ride
+    const ride = await prisma.ride.findUnique({
+      where: { id: rideId },
+      include: { 
+        passenger: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            profilePhotoUrl: true,
+          }
+        }, 
+        rider: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            licensePlate: true,
+            licenseNumber: true,
+            profilePhotoUrl: true,
+          }
+        },
+        participants: {
+          include: {
+            passenger: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                profilePhotoUrl: true,
+              }
+            }
+          }
+        }
+      },
+    });
+
+    if (!ride) {
+      return res.status(404).json({ error: 'Ride not found' });
+    }
+
+    // Check if user is a participant in the ride
+    const isParticipant = ride.participants.some(p => p.passengerId === userId);
+    const isCreator = ride.passengerId === userId;
+
+    if (!isParticipant && !isCreator) {
+      return res.status(403).json({ error: 'You are not authorized to view this ride' });
+    }
+
+    res.json({ ride });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.get('/passenger/rides', authMiddleware, requireRole([Role.PASSENGER]), async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -753,7 +1068,7 @@ app.get('/passenger/rides', authMiddleware, requireRole([Role.PASSENGER]), async
         type: r.type,
         pickupAddress: r.pickupAddress,
         destinationAddress: r.destinationAddress,
-        rider: r.rider ? { id: r.rider.id, name: r.rider.name, licensePlate: r.rider.licensePlate } : null,
+        rider: r.rider ? { id: r.rider.id, name: r.rider.name, licensePlate: r.rider.licensePlate, profilePhotoUrl: r.rider.profilePhotoUrl } : null,
         status: r.status,
         fare: r.fare,
         createdAt: r.createdAt,

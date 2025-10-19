@@ -22,23 +22,26 @@ model Rating {
 }
 
 model Ride {
-  id                 String       @id @default(uuid())
-  type               RideType
-  pickupAddress      String
-  pickupLat          Float?
-  pickupLng          Float?
-  destinationAddress String
-  destinationLat     Float?
-  destinationLng     Float?
-  distanceKm         Float?
-  scheduledAt        DateTime?
-  fare               Decimal      @db.Decimal(10, 2)
-  status             RideStatus   @default(PENDING)
-  sharedCode         String?      @unique
-  capacity           Int?
-  vehicleType        VehicleType?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  id                       String       @id @default(uuid())
+  type                     RideType
+  pickupAddress            String
+  pickupLat                Float?
+  pickupLng                Float?
+  destinationAddress       String
+  destinationLat           Float?
+  destinationLng           Float?
+  distanceKm               Float?
+  scheduledAt              DateTime?
+  fare                     Decimal      @db.Decimal(10, 2)
+  status                   RideStatus   @default(PENDING)
+  sharedCode               String?      @unique
+  capacity                 Int?
+  vehicleType              VehicleType?
+  riderAcceptanceLat       Float?       @map("rider_acceptance_lat")
+  riderAcceptanceLng       Float?       @map("rider_acceptance_lng")
+  riderAcceptanceTimestamp DateTime?    @map("rider_acceptance_timestamp")
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
 
   // relations
   passengerId  String
@@ -71,6 +74,7 @@ model User {
   registrationNumber String?  @map("registration_number")
   licenseNumber      String?  @map("license_number")
   licensePlate       String?  @map("license_plate")
+  profilePhotoUrl    String?  @map("profile_photo_url")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
