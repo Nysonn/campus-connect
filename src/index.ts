@@ -791,7 +791,6 @@ app.get('/rides/available/single', authMiddleware, requireRole([Role.RIDER]), as
       where: { 
         type: RideType.SINGLE, 
         status: RideStatus.PENDING,
-        riderId: { not: userId } // Exclude rides this rider has accepted
       },
       include: { passenger: true },
       orderBy: { createdAt: 'asc' },
@@ -812,7 +811,6 @@ app.get('/rides/available/shared', authMiddleware, requireRole([Role.RIDER]), as
       where: { 
         type: RideType.SHARED, 
         status: RideStatus.PENDING,
-        riderId: { not: userId } // Exclude rides this rider has accepted
       },
       include: { passenger: true, participants: true },
       orderBy: { createdAt: 'asc' },
