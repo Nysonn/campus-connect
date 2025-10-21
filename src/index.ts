@@ -785,8 +785,14 @@ app.post('/rides/join', authMiddleware, requireRole([Role.PASSENGER]), async (re
 // List available single rides
 app.get('/rides/available/single', authMiddleware, requireRole([Role.RIDER]), async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
+    // Get all PENDING single rides that this rider has NOT accepted
     const rides = await prisma.ride.findMany({
-      where: { type: RideType.SINGLE, status: RideStatus.PENDING },
+      where: { 
+        type: RideType.SINGLE, 
+        status: RideStatus.PENDING,
+        riderId: { not: userId } // Exclude rides this rider has accepted
+      },
       include: { passenger: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -800,8 +806,14 @@ app.get('/rides/available/single', authMiddleware, requireRole([Role.RIDER]), as
 // List available shared rides
 app.get('/rides/available/shared', authMiddleware, requireRole([Role.RIDER]), async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
+    // Get all PENDING shared rides that this rider has NOT accepted
     const rides = await prisma.ride.findMany({
-      where: { type: RideType.SHARED, status: RideStatus.PENDING },
+      where: { 
+        type: RideType.SHARED, 
+        status: RideStatus.PENDING,
+        riderId: { not: userId } // Exclude rides this rider has accepted
+      },
       include: { passenger: true, participants: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -1089,6 +1101,51 @@ app.get('/rider/rides', authMiddleware, requireRole([Role.RIDER]), async (req: R
     const rides = await prisma.ride.findMany({
       where: { riderId: userId },
       include: { passenger: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ rides });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get rider's ride history (all rides they've accepted/completed, excluding PENDING)
+app.get('/rider/rides/history', authMiddleware, requireRole([Role.RIDER]), async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    // Get all rides where this rider is assigned, excluding PENDING status
+    const rides = await prisma.ride.findMany({
+      where: { 
+        riderId: userId,
+        status: {
+          in: [RideStatus.ACCEPTED, RideStatus.ONGOING, RideStatus.COMPLETED, RideStatus.CANCELLED]
+        }
+      },
+      include: { 
+        passenger: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            profilePhotoUrl: true,
+          }
+        },
+        participants: {
+          include: {
+            passenger: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                profilePhotoUrl: true,
+              }
+            }
+          }
+        }
+      },
       orderBy: { createdAt: 'desc' },
     });
 
